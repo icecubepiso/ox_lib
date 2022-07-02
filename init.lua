@@ -58,6 +58,8 @@ end
 -- API
 -----------------------------------------------------------------------------------------------
 
+local export = exports[ox_lib]
+
 local function call(self, index, ...)
 	local module = rawget(self, index)
 	if not module then
@@ -65,7 +67,7 @@ local function call(self, index, ...)
 
 		if not module then
 			local function method(...)
-				return exports[ox_lib][index](nil, ...)
+				return export[index](nil, ...)
 			end
 
 			if not ... then
@@ -145,20 +147,13 @@ local ox = GetResourceState('ox_core') ~= 'missing' and setmetatable({}, {
 	groups = GetResourceState('ox_groups') ~= 'missing',
 }
 
-local cache = setmetatable({}, {
+local _cache = setmetatable({}, {
 	__index = function(self, key)
-		return rawset(self, key, exports[ox_lib]['cache'](nil, key) or false)[key]
+		return rawset(self, key, export.cache(nil, key) or false)[key]
 	end,
 
 	__call = function(self)
 		table.wipe(self)
-
-		if service == 'client' then
-			self.playerId = PlayerId()
-			self.serverId = GetPlayerServerId(self.playerId)
-		end
-
-		self.resource = GetCurrentResourceName()
 
 		if ox.groups then
 			self.groups = setmetatable({}, {
@@ -171,9 +166,41 @@ local cache = setmetatable({}, {
 	end
 })
 
+cache = setmetatable({
+	resource = GetCurrentResourceName(),
+}, {
+	__index = _cache,
+	__metatable = _cache
+})
+
+if service == 'client' then
+	RegisterNetEvent(('%s:notify'):format(cache.resource), function(data)
+		if locale then
+			if data.title then
+				data.title = locale(data.title) or data.title
+			end
+
+			if data.description then
+				data.description = locale(data.description) or data.description
+			end
+		end
+
+		return export:notify(data)
+	end)
+
+	cache.playerId = PlayerId()
+	cache.serverId = GetPlayerServerId(cache.playerId)
+else
+	local notify = ('%s:notify'):format(cache.resource)
+
+	function lib.notify(source, data)
+		TriggerClientEvent(notify, source, data)
+	end
+end
+
 Citizen.CreateThreadNow(function()
 	while true do
-		cache()
+		_cache()
 		Wait(60000)
 	end
 end)
@@ -184,8 +211,6 @@ AddEventHandler('ox_lib:updateCache', function(data)
 			lib.onCache[key](value)
 		end
 
-		cache[key] = value
+		_cache[key] = value
 	end
 end)
-
-_ENV.cache = cache
